@@ -17,10 +17,8 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         
-    - name: Setup Gradle
-      run: |
-        # Gradle wrapper automatikus létrehozása
-        gradle wrapper --gradle-version 7.5
-        
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+      
     - name: Build with Gradle
       run: ./gradlew build
