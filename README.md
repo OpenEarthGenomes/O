@@ -50,18 +50,18 @@ Szeretnél hozzájárulni a projekthez?
 
 · Nyiss egy Issue-t a javaslataiddal
 · Vagy küldj Pull Request-et
-Magambrowser/
-├── 📜 settings.gradle              ✅ ÚJ - hiányzott!
-├── 📜 build.gradle                 ✅ ÚJ - hiányzott!
-├── 📜 gradlew                      ✅ MÁR VAN
-├── 📜 gradlew.bat                  ✅ MÁR VAN
-├── 📁 gradle/wrapper/
-│   ├── 📜 gradle-wrapper.jar       ✅
-│   └── 📜 gradle-wrapper.properties ✅
-├── 📁 app/
-│   └── 📜 build.gradle             ✅ MÁR VAN
-└── 📁 .github/workflows/
-    └── 📜 build.yml                ✅ MÁR VAN
----
 
+---
+Magambrowser/
+├── 📜 settings.gradle              (ÚJ - hiányzott!)
+├── 📜 build.gradle                 (ÚJ - hiányzott!) 
+├── 📜 gradlew                      (MÁR VAN)
+├── 📜 gradlew.bat                  (MÁR VAN)
+├── 📁 gradle/wrapper/
+│   ├── 📜 gradle-wrapper.jar       (MÁR VAN)
+│   └── 📜 gradle-wrapper.properties (MÁR VAN)
+├── 📁 app/
+│   └── 📜 build.gradle             (MÁR VAN)
+└── 📁 .github/workflows/
+    └── 📜 build.yml                (MÁR VAN)
 License: MIT License
