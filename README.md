@@ -1,10 +1,10 @@
 # Magambrowser
-App for android phone.
+Web browser App for android phone.
 
 app/
 ├── src/main/
 │   ├── AndroidManifest.xml
-│   ├── java/.../MainActivity.kt
+│   ├── java/com/magambrowser/MainActivity.kt
 │   └── res/
 │       ├── layout/activity_main.xml
 │       └── values/...
