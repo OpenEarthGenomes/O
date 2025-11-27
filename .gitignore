@@ -1,3 +1,27 @@
+# Android generált fájlok
+*.apk
+*.aab
+*.ap_
+captures/
+
+# Android Studio/IntelliJ fájlok
+.idea/
+*.iml
+*.iws
+*.ipr
+.gradle/
+local.properties
+.DS_Store
+*.sw?
+*.orig
+
+# Build mappák
+/build/
+/bin/
+/output/
+/gen/
+/production/
+
 # Compiled class file
 *.class
 
