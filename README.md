@@ -7,4 +7,4 @@ app/
 │   ├── java/com/magambrowser/MainActivity.kt
 │   └── res/
 │       ├── layout/activity_main.xml
-│       └── values/...
+│       └── drawable/rounded_edittext.xml
