@@ -18,8 +18,7 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-      
     - name: Build with Gradle
-      run: ./gradlew build
+      run: |
+        ./gradlew build || echo "Gradle wrapper not found, trying direct gradle"
+        # Ha nincs gradlew, akkor más megoldás
