@@ -16,15 +16,9 @@ jobs:
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
-        java-version: '11'
+        java-version: '17'
         
-    - name: Create Compatible Gradle Wrapper
-      run: |
-        # Gradle 7.5 wrapper létrehozása (Java 11 kompatibilis)
-        gradle wrapper --gradle-version 7.5 --distribution-type all
-        
-    - name: Make gradlew executable
-      run: chmod +x ./gradlew
-      
     - name: Build with Gradle
-      run: ./gradlew build --no-daemon
+      run: |
+        # Közvetlen gradle használata wrapper nélkül
+        gradle build --no-daemon
