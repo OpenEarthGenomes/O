@@ -1,29 +1,28 @@
 package com.magambrowser
 
 import android.app.DownloadManager
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.text.Editable
 import android.text.TextUtils
+import android.text.TextWatcher
 import android.view.View
-import android.webkit.*
+import android.webkit.URLUtil
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import android.view.WindowManager
+import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.SharedPreferences
 import java.net.URLEncoder
-import androidx.core.content.FileProvider
-import java.io.File
 
 class MainActivity : AppCompatActivity() {
     
@@ -36,37 +35,45 @@ class MainActivity : AppCompatActivity() {
     private lateinit var jsToggleButton: ImageButton
 
     private lateinit var sharedPreferences: SharedPreferences
-    private lateinit var downloadManager: DownloadManager
-    private var downloadId: Long = -1
 
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var isFullscreen = false
 
-    // LETÖLTÉS BEFEJEZÉS FIGYELŐ
-    private val downloadCompleteReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-            if (id == downloadId) {
-                Toast.makeText(this@MainActivity, "✅ Letöltés kész!", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
+    private val blockedDomains = listOf(
+        "doubleclick.net", "googleadservices.com", "googlesyndication.com",
+        "adsystem.com", "adservice.google.com", "facebook.com/tr/",
+        "analytics.com", "tracking.com", "youtube.com/api/stats/ads",
+        "youtube.com/pagead/", "youtube.com/ptracking"
+    )
 
-    // ... (a többi változó marad)
+    private val searchEngines = mapOf(
+        "DuckDuckGo" to "https://duckduckgo.com/?q=",
+        "Startpage" to "https://www.startpage.com/sp/search?q=",
+        "Google" to "https://www.google.com/search?q=",
+        "Bing" to "https://www.bing.com/search?q="
+    )
+    
+    private val supportedFileTypes = listOf(
+        "html", "htm", "xhtml", "php", "asp", "jsp",
+        "mp4", "webm", "ogg", "mp3", "wav", "m4a",
+        "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp",
+        "pdf", "txt", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+        "zip", "rar", "7z", "tar", "gz", "apk"
+    )
+    
+    private var currentSearchEngine = "DuckDuckGo"
+    private var currentSecurityLevel = "🔒 BIZTONSÁGOS"
+    private var isUrlEditTextProgrammaticChange = false
+    private var isJavaScriptEnabled = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         sharedPreferences = getSharedPreferences("BrowserSettings", Context.MODE_PRIVATE)
-        downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        
-        // Download receiver regisztrálása
-        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-        registerReceiver(downloadCompleteReceiver, filter)
-
         loadSavedSettings()
+
         initViews()
         setupWebView()
         setupEventListeners()
@@ -75,7 +82,15 @@ class MainActivity : AppCompatActivity() {
         loadUrl("https://duckduckgo.com")
     }
 
-    // ... (egyéb metódusok változatlanul)
+    private fun initViews() {
+        webView = findViewById(R.id.webView)
+        urlEditText = findViewById(R.id.urlEditText)
+        goButton = findViewById(R.id.goButton)
+        backButton = findViewById(R.id.backButton)
+        refreshButton = findViewById(R.id.refreshButton)
+        securityButton = findViewById(R.id.securityButton)
+        jsToggleButton = findViewById(R.id.jsToggleButton)
+    }
 
     private fun setupWebView() {
         webView.settings.apply {
@@ -83,42 +98,58 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
-            allowFileAccess = true
+            allowFileAccess = false
             allowContentAccess = true
             useWideViewPort = true
             loadWithOverviewMode = true
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
-            
-            // LETÖLTÉSHEZ SZÜKSÉGES BEÁLLÍTÁSOK
-            allowUniversalAccessFromFileURLs = true
-            allowFileAccessFromFileURLs = true
         }
 
-        // 🔥 MEGÚJULT WEBCHROMECLIENT LETÖLTÉSEKHEZ
         webView.webChromeClient = object : WebChromeClient() {
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-                // ... (fullscreen kód változatlan)
+                if (customView != null) {
+                    callback?.onCustomViewHidden()
+                    return
+                }
+                
+                customView = view
+                customViewCallback = callback
+                isFullscreen = true
+                
+                val decorView = window.decorView as FrameLayout
+                decorView.addView(customView)
+                
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+                window.setFlags(
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN
+                )
+                supportActionBar?.hide()
+                
+                webView.visibility = View.GONE
             }
 
             override fun onHideCustomView() {
-                // ... (fullscreen kód változatlan)
-            }
-
-            // FONTOS: File upload támogatás
-            override fun onShowFileChooser(
-                webView: WebView?, 
-                filePathCallback: ValueCallback<Array<Uri>>?, 
-                fileChooserParams: FileChooserParams?
-            ): Boolean {
-                // Egyszerűsített fájlválasztó
-                Toast.makeText(this@MainActivity, "Fájlválasztás nem támogatott", Toast.LENGTH_SHORT).show()
-                return false
+                if (!isFullscreen || customView == null) return
+                
+                val decorView = window.decorView as FrameLayout
+                decorView.removeView(customView)
+                
+                customViewCallback?.onCustomViewHidden()
+                customView = null
+                customViewCallback = null
+                isFullscreen = false
+                
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                supportActionBar?.show()
+                
+                webView.visibility = View.VISIBLE
             }
         }
 
-        // 🔥 MEGÚJULT WEBVIEWCLIENT LETÖLTÉSEKKEZ
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 if (url == null) return true
@@ -128,7 +159,6 @@ class MainActivity : AppCompatActivity() {
                     return true
                 }
                 
-                // 🔥 JAVÍTOTT LETÖLTÉS DETEKTÁLÁS
                 if (isDownloadableFile(url)) {
                     handleDownload(url)
                     return true
@@ -151,125 +181,212 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 if (url != null) {
                     updateSecurityIndicator(url)
-                    
-                    // 🔥 AUTOMATIKUS LETÖLTÉS DETEKTÁLÁS HTML5 ATTRIBÚTUMOKBÓL
-                    view?.evaluateJavascript("""
-                        var links = document.querySelectorAll('a[download], button[download]');
-                        links.forEach(function(link) {
-                            link.setAttribute('data-android-download', 'true');
-                        });
-                    """.trimIndent(), null)
                 }
             }
-
-            // 🔥 ÚJ: Blob URL-ek kezelése (modern letöltések)
-            override fun shouldInterceptRequest(
-                view: WebView?,
-                request: WebResourceRequest?
-            ): WebResourceResponse? {
-                request?.url?.let { url ->
-                    if (url.toString().startsWith("blob:") && isDownloadableFile(url.toString())) {
-                        runOnUiThread {
-                            Toast.makeText(this@MainActivity, "📥 Blob letöltés észlelve", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-                return super.shouldInterceptRequest(view, request)
-            }
-        }
-
-        // 🔥 DIRECT DOWNLOAD HANDLER
-        webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
-            handleDownload(url)
         }
     }
 
-    // 🔥 TELJESEN ÁTÍRT LETÖLTÉSI METÓDUS
+    private fun setupEventListeners() {
+        goButton.setOnClickListener {
+            val input = urlEditText.text.toString()
+            loadUrlOrSearch(input)
+        }
+
+        backButton.setOnClickListener {
+            if (webView.canGoBack()) webView.goBack()
+        }
+
+        refreshButton.setOnClickListener {
+            webView.reload()
+        }
+
+        securityButton.setOnClickListener {
+            showSecurityInfo()
+        }
+
+        jsToggleButton.setOnClickListener {
+            toggleJavaScript()
+        }
+
+        goButton.setOnLongClickListener {
+            showSearchEngineSelector()
+            true
+        }
+    }
+
+    private fun setupUrlEditText() {
+        urlEditText.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) urlEditText.selectAll()
+        }
+        urlEditText.setOnClickListener { urlEditText.selectAll() }
+        urlEditText.ellipsize = TextUtils.TruncateAt.START
+    }
+
+    private fun loadSavedSettings() {
+        currentSearchEngine = sharedPreferences.getString("search_engine", "DuckDuckGo") ?: "DuckDuckGo"
+        isJavaScriptEnabled = sharedPreferences.getBoolean("javascript_enabled", true)
+    }
+
+    private fun saveSettings() {
+        val editor = sharedPreferences.edit()
+        editor.putString("search_engine", currentSearchEngine)
+        editor.putBoolean("javascript_enabled", isJavaScriptEnabled)
+        editor.apply()
+    }
+
+    private fun showSearchEngineSelector() {
+        val engines = searchEngines.keys.toTypedArray()
+        val currentIndex = engines.indexOf(currentSearchEngine)
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Keresőmotor választás")
+            .setSingleChoiceItems(engines, currentIndex) { _, which ->
+                currentSearchEngine = engines[which]
+                saveSettings()
+                Toast.makeText(this, "✅ Kereső: $currentSearchEngine", Toast.LENGTH_LONG).show()
+            }
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
+    private fun updateSecurityIndicator(url: String) {
+        when {
+            url.startsWith("https://") -> {
+                securityButton.setImageResource(android.R.drawable.presence_online)
+                currentSecurityLevel = "🔒 BIZTONSÁGOS"
+            }
+            url.startsWith("http://") -> {
+                securityButton.setImageResource(android.R.drawable.presence_busy)
+                currentSecurityLevel = "⚠️ NEM BIZTONSÁGOS"
+            }
+            else -> {
+                securityButton.setImageResource(android.R.drawable.presence_offline)
+                currentSecurityLevel = "❌ BLOKKOLVA"
+            }
+        }
+        securityButton.contentDescription = currentSecurityLevel
+    }
+
+    private fun showSecurityInfo() {
+        Toast.makeText(this, currentSecurityLevel, Toast.LENGTH_LONG).show()
+    }
+
+    private fun toggleJavaScript() {
+        isJavaScriptEnabled = !isJavaScriptEnabled
+        webView.settings.javaScriptEnabled = isJavaScriptEnabled
+        
+        if (isJavaScriptEnabled) {
+            jsToggleButton.setImageResource(android.R.drawable.ic_lock_lock)
+            Toast.makeText(this, "✅ JavaScript engedélyezve", Toast.LENGTH_SHORT).show()
+        } else {
+            jsToggleButton.setImageResource(android.R.drawable.ic_media_pause)
+            Toast.makeText(this, "❌ JavaScript letiltva", Toast.LENGTH_SHORT).show()
+        }
+        saveSettings()
+        webView.reload()
+    }
+
+    private fun shortenUrlForDisplay(fullUrl: String): String {
+        return when {
+            fullUrl.length > 60 -> {
+                val domain = fullUrl.substringAfter("://").substringBefore("/")
+                val path = fullUrl.substringAfter(domain, "")
+                if (path.length > 20) "$domain/...${path.takeLast(15)}" else "$domain$path"
+            }
+            else -> fullUrl
+        }
+    }
+
+    private fun sanitizeInput(input: String): String {
+        val dangerousPatterns = listOf("javascript:", "data:", "vbscript:", "file://")
+        var sanitized = input
+        dangerousPatterns.forEach { pattern ->
+            if (sanitized.contains(pattern, ignoreCase = true)) {
+                sanitized = sanitized.replace(pattern, "", ignoreCase = true)
+            }
+        }
+        return sanitized.trim()
+    }
+
+    private fun loadUrlOrSearch(input: String) {
+        val cleanInput = sanitizeInput(input)
+        
+        when {
+            cleanInput.startsWith("https://") -> loadUrl(cleanInput)
+            cleanInput.startsWith("http://") -> {
+                val httpsUrl = cleanInput.replace("http://", "https://")
+                loadUrl(httpsUrl)
+                Toast.makeText(this, "🔒 HTTPS-re átirányítva", Toast.LENGTH_SHORT).show()
+            }
+            cleanInput.matches(Regex("^[a-zA-Z0-9-]+\\.[a-zA-Z]{2,}.*")) -> loadUrl("https://$cleanInput")
+            cleanInput.contains(".") && !cleanInput.contains(" ") -> loadUrl("https://$cleanInput")
+            else -> safeSearch(cleanInput)
+        }
+    }
+
+    private fun loadUrl(url: String) {
+        webView.loadUrl(url)
+    }
+
+    private fun safeSearch(query: String) {
+        val baseUrl = searchEngines[currentSearchEngine] ?: searchEngines["DuckDuckGo"]!!
+        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        val searchUrl = baseUrl + encodedQuery
+        loadUrl(searchUrl)
+        
+        isUrlEditTextProgrammaticChange = true
+        urlEditText.setText(query)
+        urlEditText.setSelection(0, query.length)
+        isUrlEditTextProgrammaticChange = false
+        
+        Toast.makeText(this, "🔍 Kereső: $currentSearchEngine", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun isUrlBlocked(url: String): Boolean {
+        return blockedDomains.any { domain -> url.contains(domain) }
+    }
+
+    private fun isDownloadableFile(url: String): Boolean {
+        val fileExtension = url.substringAfterLast('.').toLowerCase()
+        return supportedFileTypes.any { it == fileExtension } &&
+               (url.contains("download") || url.contains("attachment"))
+    }
+
     private fun handleDownload(url: String) {
         try {
-            // Fájlnév generálás
-            var fileName = URLUtil.guessFileName(url, null, null)
-            if (fileName.length < 4) {
-                fileName = "download_${System.currentTimeMillis()}.bin"
-            }
-
-            // DownloadManager request
             val request = DownloadManager.Request(Uri.parse(url))
-                .setTitle(fileName)
-                .setDescription("Letöltés: $fileName")
+                .setTitle("Letöltés: ${URLUtil.guessFileName(url, null, null)}")
+                .setDescription("Fájl letöltése")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(true)
 
-            // MIME típus beállítás
-            val mimeType = URLConnection.guessContentTypeFromName(fileName)
-            if (mimeType != null) {
-                request.setMimeType(mimeType)
-            }
+            val fileName = URLUtil.guessFileName(url, null, null)
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
 
-            // Célkönyvtár beállítás (Android 10+ kompatibilis)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Android 10+ - Scoped Storage
-                request.setDestinationInExternalPublicDir(
-                    Environment.DIRECTORY_DOWNLOADS, 
-                    "MyWebBrowser/$fileName"
-                )
-            } else {
-                // Android 9- - Régi rendszer
-                request.setDestinationInExternalPublicDir(
-                    Environment.DIRECTORY_DOWNLOADS, 
-                    fileName
-                )
-            }
-
-            // Letöltés indítása
-            downloadId = downloadManager.enqueue(request)
+            val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            downloadManager.enqueue(request)
             
-            Toast.makeText(
-                this, 
-                "📥 Letöltés elindult: $fileName", 
-                Toast.LENGTH_LONG
-            ).show()
-
-        } catch (e: SecurityException) {
-            Toast.makeText(this, "❌ Nincs letöltési jogosultság", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "📥 Letöltés elindult", Toast.LENGTH_LONG).show()
+            
         } catch (e: Exception) {
-            Toast.makeText(this, "❌ Letöltési hiba: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "❌ Letöltési hiba", Toast.LENGTH_LONG).show()
         }
     }
 
-    // 🔥 JAVÍTOTT FÁJLTÍPUS DETEKTÁLÁS
-    private fun isDownloadableFile(url: String): Boolean {
-        val cleanUrl = url.toLowerCase().split('?')[0]
-        val fileExtension = cleanUrl.substringAfterLast('.').trim()
-        
-        if (fileExtension.length > 10) return false // Túl hosszú kiterjesztés
-        
-        val downloadableExtensions = listOf(
-            "pdf", "zip", "rar", "7z", "tar", "gz", "apk",
-            "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm",
-            "mp3", "wav", "flac", "aac", "ogg", "m4a",
-            "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-            "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg",
-            "exe", "msi", "dmg", "pkg", "deb", "rpm"
-        )
-        
-        return downloadableExtensions.any { it == fileExtension } ||
-               url.contains("download") ||
-               url.contains("attachment") ||
-               url.contains("blob:")
+    override fun onBackPressed() {
+        if (isFullscreen) {
+            webView.webChromeClient?.onHideCustomView()
+        } else if (webView.canGoBack()) {
+            webView.goBack()
+        } else {
+            super.onBackPressed()
+        }
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        // Receiver leiratkozás
-        try {
-            unregisterReceiver(downloadCompleteReceiver)
-        } catch (e: Exception) {
-            // Már nincs regisztrálva
-        }
-        
         webView.clearCache(true)
         webView.clearHistory()
+        super.onDestroy()
     }
 }
